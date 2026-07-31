@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Package, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, Package, Plus, Search, Trash2, Upload } from 'lucide-react'
 import { Layout } from '../components/layout/Layout'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -13,11 +13,14 @@ import type { Product } from '../lib/types'
 import { parseProductsExcel } from '../utils/importExcel'
 
 const emptyForm = { barcode: '', item_code: '', description: '', uom: '' }
+const PAGE_SIZE = 100
 
 export default function Products() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -29,16 +32,41 @@ export default function Products() {
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    void load()
+  const load = useCallback(async (targetPage: number, term: string) => {
+    setLoading(true)
+    const from = targetPage * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+
+    let query = supabase
+      .from('products')
+      .select('*', { count: 'exact' })
+      .order('item_code')
+      .range(from, to)
+
+    const q = term.trim()
+    if (q) {
+      query = query.or(`barcode.ilike.%${q}%,item_code.ilike.%${q}%,description.ilike.%${q}%`)
+    }
+
+    const { data, count } = await query
+    setProducts((data ?? []) as Product[])
+    setTotalCount(count ?? 0)
+    setLoading(false)
   }, [])
 
-  async function load() {
-    setLoading(true)
-    const { data } = await supabase.from('products').select('*').order('item_code')
-    setProducts((data ?? []) as Product[])
-    setLoading(false)
-  }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(0)
+      void load(0, search)
+    }, 350)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
+
+  useEffect(() => {
+    void load(page, search)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
 
   function openAdd() {
     setEditing(null)
@@ -81,19 +109,19 @@ export default function Products() {
     }
 
     setModalOpen(false)
-    await load()
+    await load(page, search)
   }
 
   async function handleDelete(p: Product) {
     const ok = window.confirm(`Delete product "${p.item_code}"? This cannot be undone.`)
     if (!ok) return
     await supabase.from('products').delete().eq('id', p.id)
-    await load()
+    await load(page, search)
   }
 
   async function handleToggleActive(p: Product) {
     await supabase.from('products').update({ is_active: !p.is_active }).eq('id', p.id)
-    await load()
+    await load(page, search)
   }
 
   async function handleImportFile(file: File) {
@@ -114,7 +142,8 @@ export default function Products() {
         setImportSummary(`Import failed: ${error.message}`)
       } else {
         setImportSummary(`Imported/updated ${count ?? rows.length} product(s).`)
-        await load()
+        setPage(0)
+        await load(0, search)
       }
     } catch (err) {
       setImportBusy(false)
@@ -124,15 +153,9 @@ export default function Products() {
     }
   }
 
-  const filtered = products.filter((p) => {
-    const q = search.trim().toLowerCase()
-    if (!q) return true
-    return (
-      p.barcode.toLowerCase().includes(q) ||
-      p.item_code.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q)
-    )
-  })
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const rangeStart = totalCount === 0 ? 0 : page * PAGE_SIZE + 1
+  const rangeEnd = Math.min(totalCount, page * PAGE_SIZE + PAGE_SIZE)
 
   return (
     <Layout title="Products">
@@ -176,7 +199,7 @@ export default function Products() {
             <div className="flex justify-center py-14">
               <Spinner className="h-6 w-6 text-ink-400" />
             </div>
-          ) : filtered.length === 0 ? (
+          ) : products.length === 0 ? (
             <EmptyState icon={<Package size={32} />} title="No products found" />
           ) : (
             <div className="overflow-x-auto">
@@ -192,7 +215,7 @@ export default function Products() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {filtered.map((p) => (
+                  {products.map((p) => (
                     <tr key={p.id} className="hover:bg-ink-50">
                       <td className="px-5 py-3 font-mono text-xs text-ink-500">{p.barcode}</td>
                       <td className="px-5 py-3 font-medium text-ink-800">{p.item_code}</td>
@@ -223,6 +246,35 @@ export default function Products() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!loading && totalCount > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-5 py-3">
+              <p className="text-xs text-ink-400">
+                Showing {rangeStart}–{rangeEnd} of {totalCount}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                >
+                  <ChevronLeft size={14} /> Previous
+                </Button>
+                <span className="text-xs font-medium text-ink-500">
+                  Page {page + 1} of {totalPages}
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                >
+                  Next <ChevronRight size={14} />
+                </Button>
+              </div>
             </div>
           )}
         </Card>
