@@ -35,7 +35,13 @@ export function parseProductsExcel(file: File): Promise<ImportedProductRow[]> {
           }
         })
 
-        resolve(rows.filter((r) => r.barcode && r.item_code))
+        // Excel files often contain the same barcode more than once (typos,
+        // re-exports, etc). Postgres's ON CONFLICT DO UPDATE cannot touch
+        // the same row twice in one statement, so we dedupe here — the
+        // last occurrence of a given barcode in the file wins.
+        const filtered = rows.filter((r) => r.barcode && r.item_code)
+        const deduped = Array.from(new Map(filtered.map((r) => [r.barcode, r])).values())
+        resolve(deduped)
       } catch (err) {
         reject(err instanceof Error ? err : new Error('Could not parse the file.'))
       }
