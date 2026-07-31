@@ -39,13 +39,20 @@ export default function NewTransfer() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
+  // Fallback for when a barcode won't scan or isn't registered: look the
+  // item up by Item Code instead.
+  const [manualSearchOpen, setManualSearchOpen] = useState(false)
+  const [manualQuery, setManualQuery] = useState('')
+  const [manualResults, setManualResults] = useState<Product[]>([])
+  const [manualSearching, setManualSearching] = useState(false)
+
   const barcodeRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const [formFieldFocused, setFormFieldFocused] = useState(false)
 
   // Keep the scanner input focused unless the user is deliberately typing
   // into the quantity or a header text field, or an item is pending.
-  useBarcodeScannerFocus(barcodeRef, !pendingProduct && !formFieldFocused)
+  useBarcodeScannerFocus(barcodeRef, !pendingProduct && !formFieldFocused && !manualSearchOpen)
 
   useEffect(() => {
     void initDraft()
@@ -107,19 +114,62 @@ export default function NewTransfer() {
     setScanBusy(false)
 
     if (error || !product) {
-      setScanFeedback({ type: 'error', message: `Unknown Barcode: "${code}" is not registered in Products.` })
+      setScanFeedback({
+        type: 'error',
+        message: `Unknown Barcode: "${code}" is not registered in Products. Try searching by Item Code below.`,
+      })
       setBarcodeValue('')
+      setManualSearchOpen(true)
       return
     }
 
-    setPendingProduct(product as Product)
-    setPendingQty('1')
     setBarcodeValue('')
+    selectProduct(product as Product)
+  }
+
+  // Shared by both the barcode scan flow and the manual Item Code search
+  // flow — whichever way the product was found, the rest of the "add
+  // item" experience is identical.
+  function selectProduct(product: Product) {
+    if (items.some((i) => i.barcode === product.barcode)) {
+      setScanFeedback({ type: 'warning', message: `${product.item_code} was already scanned in this transfer.` })
+      return
+    }
+    setScanFeedback(null)
+    setManualSearchOpen(false)
+    setManualQuery('')
+    setManualResults([])
+    setPendingProduct(product)
+    setPendingQty('1')
     window.setTimeout(() => {
       qtyRef.current?.focus()
       qtyRef.current?.select()
     }, 0)
   }
+
+  // Debounced live search by Item Code, for when a barcode can't be
+  // scanned or isn't registered.
+  useEffect(() => {
+    if (!manualSearchOpen) return
+    const q = manualQuery.trim()
+    if (!q) {
+      setManualResults([])
+      return
+    }
+    setManualSearching(true)
+    const timer = window.setTimeout(async () => {
+      const { data } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .ilike('item_code', `%${q}%`)
+        .order('item_code')
+        .limit(20)
+      setManualResults((data ?? []) as Product[])
+      setManualSearching(false)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [manualQuery, manualSearchOpen])
 
   async function handleAddItem() {
     if (!header || !pendingProduct) return
@@ -313,7 +363,58 @@ export default function NewTransfer() {
                 className="w-full rounded-xl border-2 border-ink-200 bg-ink-50 px-4 py-4 text-lg font-semibold tracking-wide text-ink-900 focus:border-signal-500 focus:bg-white disabled:opacity-60"
               />
               {scanBusy && <p className="mt-1 text-xs text-ink-400">Looking up product…</p>}
+              {!pendingProduct && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualSearchOpen((v) => !v)
+                    setScanFeedback(null)
+                  }}
+                  className="mt-2 text-xs font-medium text-signal-600 hover:underline"
+                >
+                  {manualSearchOpen ? 'Hide item code search' : "Can't scan the barcode? Search by Item Code"}
+                </button>
+              )}
             </div>
+
+            {manualSearchOpen && !pendingProduct && (
+              <div className="rounded-xl border border-ink-200 bg-ink-50 p-4">
+                <label htmlFor="manual-item-code" className="mb-1.5 block text-sm font-medium text-ink-700">
+                  Search by Item Code
+                </label>
+                <input
+                  id="manual-item-code"
+                  autoFocus
+                  autoComplete="off"
+                  value={manualQuery}
+                  onChange={(e) => setManualQuery(e.target.value)}
+                  placeholder="Start typing an item code…"
+                  className="w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm focus:border-signal-500"
+                />
+                {manualSearching && <p className="mt-2 text-xs text-ink-400">Searching…</p>}
+                {!manualSearching && manualQuery.trim() && manualResults.length === 0 && (
+                  <p className="mt-2 text-xs text-ink-400">No matching item codes found.</p>
+                )}
+                {manualResults.length > 0 && (
+                  <div className="mt-3 divide-y divide-ink-200 overflow-hidden rounded-lg border border-ink-200 bg-white">
+                    {manualResults.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => selectProduct(p)}
+                        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left text-sm hover:bg-ink-50"
+                      >
+                        <span>
+                          <span className="font-semibold text-ink-800">{p.item_code}</span>{' '}
+                          <span className="text-ink-500">— {p.description}</span>
+                        </span>
+                        <span className="shrink-0 text-xs font-mono text-ink-400">{p.barcode}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {scanFeedback && (
               <div
