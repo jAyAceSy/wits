@@ -1,6 +1,11 @@
 // Hand-written types mirroring supabase/schema.sql.
 // If you change the schema, you can instead regenerate with:
 //   supabase gen types typescript --project-id <ref> > src/lib/database.types.ts
+//
+// IMPORTANT: every table needs Row / Insert / Update / Relationships, and the
+// schema needs Views / Functions / Enums / CompositeTypes present (even if
+// empty) — supabase-js's generics require this exact shape. Omitting any of
+// them silently collapses insert()/update() argument types to `never`.
 
 export type UserRole = 'admin' | 'warehouse_staff'
 export type TransferStatus = 'draft' | 'submitted' | 'voided'
@@ -31,6 +36,7 @@ export interface Database {
           role?: UserRole
           is_active?: boolean
         }
+        Relationships: []
       }
       products: {
         Row: {
@@ -61,6 +67,7 @@ export interface Database {
           is_active?: boolean
           updated_at?: string
         }
+        Relationships: []
       }
       transfer_headers: {
         Row: {
@@ -68,9 +75,9 @@ export interface Database {
           transfer_number: string
           transfer_date: string
           created_at: string
-          warehouse_receiver: string
-          production_area: string
-          destination_warehouse: string
+          warehouse_receiver: string | null
+          production_area: string | null
+          destination_warehouse: string | null
           remarks: string | null
           status: TransferStatus
           created_by: string
@@ -82,24 +89,33 @@ export interface Database {
           transfer_number?: string
           transfer_date?: string
           created_at?: string
-          warehouse_receiver: string
-          production_area: string
-          destination_warehouse: string
+          warehouse_receiver?: string | null
+          production_area?: string | null
+          destination_warehouse?: string | null
           remarks?: string | null
           status?: TransferStatus
-          created_by: string
+          created_by?: string
           total_items?: number
           total_qty?: number
         }
         Update: {
-          warehouse_receiver?: string
-          production_area?: string
-          destination_warehouse?: string
+          warehouse_receiver?: string | null
+          production_area?: string | null
+          destination_warehouse?: string | null
           remarks?: string | null
           status?: TransferStatus
           total_items?: number
           total_qty?: number
         }
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_headers_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          },
+        ]
       }
       transfer_details: {
         Row: {
@@ -127,6 +143,22 @@ export interface Database {
         Update: {
           quantity?: number
         }
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_details_transfer_id_fkey'
+            columns: ['transfer_id']
+            isOneToOne: false
+            referencedRelation: 'transfer_headers'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'transfer_details_product_id_fkey'
+            columns: ['product_id']
+            isOneToOne: false
+            referencedRelation: 'products'
+            referencedColumns: ['id']
+          },
+        ]
       }
       audit_logs: {
         Row: {
@@ -147,8 +179,22 @@ export interface Database {
           details?: Record<string, unknown> | null
           created_at?: string
         }
-        Update: never
+        Update: {
+          user_id?: string | null
+          action?: string
+          table_name?: string
+          record_id?: string | null
+          details?: Record<string, unknown> | null
+        }
+        Relationships: []
       }
     }
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: {
+      user_role: UserRole
+      transfer_status: TransferStatus
+    }
+    CompositeTypes: Record<string, never>
   }
 }
