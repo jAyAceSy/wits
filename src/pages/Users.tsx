@@ -114,7 +114,9 @@ export default function Users() {
                           onChange={(e) => void handleRoleChange(u, e.target.value as UserRole)}
                           className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs font-medium"
                         >
-                          <option value="warehouse_staff">Warehouse Staff</option>
+                          <option value="warehouse_staff">Warehouse Staff (Receiver)</option>
+                          <option value="production">Production</option>
+                          <option value="warehouse_officer">Warehouse Officer</option>
                           <option value="admin">Administrator</option>
                         </select>
                       </td>
@@ -153,7 +155,9 @@ export default function Users() {
           <Input label="Full Name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
           <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-            <option value="warehouse_staff">Warehouse Staff</option>
+            <option value="warehouse_staff">Warehouse Staff (Receiver)</option>
+            <option value="production">Production</option>
+            <option value="warehouse_officer">Warehouse Officer</option>
             <option value="admin">Administrator</option>
           </Select>
           {inviteError && <p className="text-sm font-medium text-red-600">{inviteError}</p>}

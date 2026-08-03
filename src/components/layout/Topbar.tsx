@@ -39,7 +39,13 @@ export function Topbar({ onMenuClick, title }: { onMenuClick: () => void; title:
             <div className="border-b border-ink-100 px-4 pb-2">
               <p className="text-sm font-medium text-ink-800">{profile?.full_name}</p>
               <Badge tone={profile?.role === 'admin' ? 'info' : 'neutral'}>
-                {profile?.role === 'admin' ? 'Administrator' : 'Warehouse Staff'}
+                {profile?.role === 'admin'
+                  ? 'Administrator'
+                  : profile?.role === 'production'
+                    ? 'Production'
+                    : profile?.role === 'warehouse_officer'
+                      ? 'Warehouse Officer'
+                      : 'Warehouse Staff'}
               </Badge>
             </div>
             <button

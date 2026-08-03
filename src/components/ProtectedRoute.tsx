@@ -2,13 +2,18 @@ import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Spinner } from './ui/Spinner'
+import type { UserRole } from '../lib/types'
 
 export function ProtectedRoute({
   children,
   adminOnly = false,
+  allowedRoles,
 }: {
   children: ReactNode
+  /** @deprecated use allowedRoles={['admin']} instead — kept for older routes. */
   adminOnly?: boolean
+  /** If provided, only these roles (plus admin, always) may view this route. */
+  allowedRoles?: UserRole[]
 }) {
   const { session, profile, loading, isAdmin } = useAuth()
 
@@ -33,6 +38,10 @@ export function ProtectedRoute({
   }
 
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />
+
+  if (allowedRoles && !isAdmin && profile && !allowedRoles.includes(profile.role)) {
+    return <Navigate to="/" replace />
+  }
 
   return <>{children}</>
 }

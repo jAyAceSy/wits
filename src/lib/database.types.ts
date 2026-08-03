@@ -1,14 +1,28 @@
-// Hand-written types mirroring supabase/schema.sql.
+// Hand-written types mirroring supabase/schema.sql + migration_002_transfer_receiving.sql.
 // If you change the schema, you can instead regenerate with:
 //   supabase gen types typescript --project-id <ref> > src/lib/database.types.ts
 //
 // IMPORTANT: every table needs Row / Insert / Update / Relationships, and the
 // schema needs Views / Functions / Enums / CompositeTypes present (even if
 // empty) — supabase-js's generics require this exact shape. Omitting any of
-// them silently collapses insert()/update() argument types to `never`.
+// them silently collapses insert()/update()/rpc() argument types to `never`.
+// (This bit us once already — see the migration_002 rollout notes.)
 
-export type UserRole = 'admin' | 'warehouse_staff'
+export type UserRole = 'admin' | 'warehouse_staff' | 'production' | 'warehouse_officer'
 export type TransferStatus = 'draft' | 'submitted' | 'voided'
+
+export type TransferMasterStatus =
+  | 'Pending'
+  | 'Received'
+  | 'Pending Warehouse Officer Review'
+  | 'Under Investigation'
+  | 'Approved with Variance'
+  | 'Rejected'
+  | 'Cancelled'
+
+export type ImportValidationStatus = 'valid' | 'invalid' | 'duplicate_in_file' | 'duplicate_in_db'
+
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export interface Database {
   public: {
@@ -188,9 +202,192 @@ export interface Database {
         }
         Relationships: []
       }
+      transfer_import_batches: {
+        Row: {
+          id: string
+          import_id: string | null
+          filename: string
+          uploaded_by: string
+          uploaded_at: string
+          total_records: number
+          successful_records: number
+          failed_records: number
+          duplicate_records: number
+          status: string
+        }
+        Insert: {
+          id?: string
+          import_id?: string | null
+          filename: string
+          uploaded_by?: string
+          uploaded_at?: string
+          total_records?: number
+          successful_records?: number
+          failed_records?: number
+          duplicate_records?: number
+          status?: string
+        }
+        Update: {
+          total_records?: number
+          successful_records?: number
+          failed_records?: number
+          duplicate_records?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_import_batches_uploaded_by_fkey'
+            columns: ['uploaded_by']
+            isOneToOne: false
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      transfer_import_staging: {
+        Row: {
+          id: string
+          import_batch_id: string
+          row_number: number
+          transfer_barcode: string | null
+          item_code: string | null
+          description: string | null
+          uom: string | null
+          transferred_quantity_raw: string | null
+          transferred_quantity: number | null
+          validation_status: ImportValidationStatus | null
+          validation_errors: string[] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          import_batch_id: string
+          row_number: number
+          transfer_barcode?: string | null
+          item_code?: string | null
+          description?: string | null
+          uom?: string | null
+          transferred_quantity_raw?: string | null
+          transferred_quantity?: number | null
+          validation_status?: ImportValidationStatus | null
+          validation_errors?: string[] | null
+          created_at?: string
+        }
+        Update: {
+          validation_status?: ImportValidationStatus | null
+          validation_errors?: string[] | null
+          transferred_quantity?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_import_staging_import_batch_id_fkey'
+            columns: ['import_batch_id']
+            isOneToOne: false
+            referencedRelation: 'transfer_import_batches'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      transfer_master: {
+        Row: {
+          id: string
+          transfer_barcode: string
+          item_code: string
+          description: string
+          uom: string
+          transferred_quantity: number
+          status: TransferMasterStatus
+          import_batch_id: string | null
+          created_at: string
+          received_quantity: number | null
+          received_by: string | null
+          received_at: string | null
+          variance: number | null
+          reviewed_by: string | null
+          reviewed_at: string | null
+          review_remarks: string | null
+          reopened_count: number
+        }
+        Insert: {
+          id?: string
+          transfer_barcode: string
+          item_code: string
+          description: string
+          uom: string
+          transferred_quantity: number
+          status?: TransferMasterStatus
+          import_batch_id?: string | null
+          created_at?: string
+        }
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_master_import_batch_id_fkey'
+            columns: ['import_batch_id']
+            isOneToOne: false
+            referencedRelation: 'transfer_import_batches'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      transfer_audit_trail: {
+        Row: {
+          id: string
+          transfer_master_id: string | null
+          transfer_barcode: string
+          import_batch_id: string | null
+          event: string
+          previous_status: string | null
+          new_status: string | null
+          transferred_quantity: number | null
+          received_quantity: number | null
+          variance: number | null
+          performed_by: string | null
+          remarks: string | null
+          created_at: string
+        }
+        Insert: never
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: 'transfer_audit_trail_transfer_master_id_fkey'
+            columns: ['transfer_master_id']
+            isOneToOne: false
+            referencedRelation: 'transfer_master'
+            referencedColumns: ['id']
+          },
+        ]
+      }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      process_transfer_import: {
+        Args: { p_batch_id: string }
+        Returns: Json
+      }
+      receiver_lookup_transfer: {
+        Args: { p_barcode: string }
+        Returns: {
+          transfer_barcode: string
+          item_code: string
+          description: string
+          uom: string
+          status: string
+        }[]
+      }
+      submit_receiving: {
+        Args: { p_transfer_barcode: string; p_received_qty: number }
+        Returns: string
+      }
+      warehouse_officer_review: {
+        Args: { p_transfer_id: string; p_action: string; p_remarks?: string | null }
+        Returns: undefined
+      }
+      reopen_transfer: {
+        Args: { p_transfer_id: string; p_remarks?: string | null }
+        Returns: undefined
+      }
+    }
     Enums: {
       user_role: UserRole
       transfer_status: TransferStatus

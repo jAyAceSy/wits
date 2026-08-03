@@ -9,6 +9,9 @@ import {
   FileBarChart,
   Search,
   Boxes,
+  FileSpreadsheet,
+  PackageCheck,
+  ClipboardList,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -26,7 +29,7 @@ const adminLinks = [
 ]
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, isProduction, isReceiver, isOfficer } = useAuth()
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     clsx(
@@ -34,8 +37,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       isActive ? 'bg-ink-800 text-white' : 'text-ink-300 hover:bg-ink-800/60 hover:text-white',
     )
 
+  const showWarehouseSection = isReceiver
+  const showReceivingSection = isReceiver || isProduction
+  const showAdminSection = isAdmin
+
   return (
-    <nav className="flex h-full w-64 flex-col bg-ink-900 px-3 py-5">
+    <nav className="flex h-full w-64 flex-col overflow-y-auto bg-ink-900 px-3 py-5">
       <div className="mb-6 flex items-center gap-2 px-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-signal-500 text-white">
           <Boxes size={18} />
@@ -46,20 +53,61 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-          Warehouse
-        </p>
-        {staffLinks.map((link) => (
-          <NavLink key={link.to} to={link.to} end={link.end} className={linkClass} onClick={onNavigate}>
-            <link.icon size={18} />
-            {link.label}
-          </NavLink>
-        ))}
-      </div>
+      <NavLink to="/" end className={linkClass} onClick={onNavigate}>
+        <LayoutDashboard size={18} />
+        Dashboard
+      </NavLink>
 
-      {isAdmin && (
-        <div className="mt-6 flex flex-col gap-1">
+      {showWarehouseSection && (
+        <div className="mt-5 flex flex-col gap-1">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Warehouse
+          </p>
+          {staffLinks
+            .filter((l) => l.to !== '/')
+            .map((link) => (
+              <NavLink key={link.to} to={link.to} className={linkClass} onClick={onNavigate}>
+                <link.icon size={18} />
+                {link.label}
+              </NavLink>
+            ))}
+        </div>
+      )}
+
+      {showReceivingSection && (
+        <div className="mt-5 flex flex-col gap-1">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Transfer Receiving
+          </p>
+          {isReceiver && (
+            <NavLink to="/receive-transfer" className={linkClass} onClick={onNavigate}>
+              <PackageCheck size={18} />
+              Receive Transfer
+            </NavLink>
+          )}
+          {isProduction && (
+            <NavLink to="/transfer-management" className={linkClass} onClick={onNavigate}>
+              <FileSpreadsheet size={18} />
+              Transfer Management
+            </NavLink>
+          )}
+        </div>
+      )}
+
+      {isOfficer && (
+        <div className="mt-5 flex flex-col gap-1">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Officer
+          </p>
+          <NavLink to="/variance-review" className={linkClass} onClick={onNavigate}>
+            <ClipboardList size={18} />
+            Variance Review
+          </NavLink>
+        </div>
+      )}
+
+      {showAdminSection && (
+        <div className="mt-5 flex flex-col gap-1">
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
             Administration
           </p>

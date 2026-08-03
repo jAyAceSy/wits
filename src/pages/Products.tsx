@@ -32,6 +32,9 @@ export default function Products() {
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Loads one page directly from the database — search is applied as a
+  // real query (not a client-side filter), so it can find any product
+  // regardless of which page it would normally fall on.
   const load = useCallback(async (targetPage: number, term: string) => {
     setLoading(true)
     const from = targetPage * PAGE_SIZE
@@ -54,6 +57,7 @@ export default function Products() {
     setLoading(false)
   }, [])
 
+  // Debounce search input so we don't fire a query on every keystroke.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setPage(0)

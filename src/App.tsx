@@ -9,6 +9,9 @@ import Products from './pages/Products'
 import Users from './pages/Users'
 import Reports from './pages/Reports'
 import Search from './pages/Search'
+import TransferImport from './pages/TransferImport'
+import ReceiveTransfer from './pages/ReceiveTransfer'
+import VarianceReview from './pages/VarianceReview'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -27,7 +30,7 @@ export default function App() {
       <Route
         path="/transfers/new"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['warehouse_staff']}>
             <NewTransfer />
           </ProtectedRoute>
         }
@@ -35,7 +38,7 @@ export default function App() {
       <Route
         path="/transfers"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['warehouse_staff']}>
             <TransferHistory />
           </ProtectedRoute>
         }
@@ -43,7 +46,7 @@ export default function App() {
       <Route
         path="/transfers/:id"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allowedRoles={['warehouse_staff']}>
             <TransferDetail />
           </ProtectedRoute>
         }
@@ -77,6 +80,32 @@ export default function App() {
         element={
           <ProtectedRoute adminOnly>
             <Reports />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Transfer Barcode Receiving feature */}
+      <Route
+        path="/transfer-management"
+        element={
+          <ProtectedRoute allowedRoles={['production']}>
+            <TransferImport />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/receive-transfer"
+        element={
+          <ProtectedRoute allowedRoles={['warehouse_staff']}>
+            <ReceiveTransfer />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/variance-review"
+        element={
+          <ProtectedRoute allowedRoles={['warehouse_officer']}>
+            <VarianceReview />
           </ProtectedRoute>
         }
       />

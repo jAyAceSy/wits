@@ -8,6 +8,9 @@ interface AuthContextValue {
   profile: AppUser | null
   loading: boolean
   isAdmin: boolean
+  isProduction: boolean
+  isOfficer: boolean
+  isReceiver: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -74,11 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session?.user) await loadProfile(session.user.id)
   }
 
+  const isAdmin = profile?.role === 'admin'
+
   const value: AuthContextValue = {
     session,
     profile,
     loading,
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
+    isProduction: isAdmin || profile?.role === 'production',
+    isOfficer: isAdmin || profile?.role === 'warehouse_officer',
+    isReceiver: isAdmin || profile?.role === 'warehouse_staff',
     signIn,
     signOut,
     refreshProfile,
