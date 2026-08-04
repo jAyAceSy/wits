@@ -25,7 +25,7 @@ import { PalletLabelCard } from '../components/PalletLabelCard'
 import { formatDateTime } from '../utils/format'
 
 const CHUNK_SIZE = 500
-const COMPANY_NAME = 'SCPA Hygiene Products Inc.'
+const COMPANY_NAME = 'Sanitary Care Products Asia, Inc.'
 
 type Tab = 'records' | 'history'
 
