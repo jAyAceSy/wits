@@ -258,6 +258,10 @@ export interface Database {
           validation_status: ImportValidationStatus | null
           validation_errors: string[] | null
           created_at: string
+          destination_warehouse: string | null
+          production_date_raw: string | null
+          production_date: string | null
+          pallet_number: string | null
         }
         Insert: {
           id?: string
@@ -272,6 +276,10 @@ export interface Database {
           validation_status?: ImportValidationStatus | null
           validation_errors?: string[] | null
           created_at?: string
+          destination_warehouse?: string | null
+          production_date_raw?: string | null
+          production_date?: string | null
+          pallet_number?: string | null
         }
         Update: {
           validation_status?: ImportValidationStatus | null
