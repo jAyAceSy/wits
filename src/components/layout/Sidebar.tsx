@@ -25,7 +25,6 @@ const staffLinks = [
 const adminLinks = [
   { to: '/products', label: 'Products', icon: Package },
   { to: '/users', label: 'Users', icon: Users },
-  { to: '/reports', label: 'Reports', icon: FileBarChart },
 ]
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -93,6 +92,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <NavLink to="/variance-review" className={linkClass} onClick={onNavigate}>
             <ClipboardList size={18} />
             Variance Review
+          </NavLink>
+          <NavLink to="/reports" className={linkClass} onClick={onNavigate}>
+            <FileBarChart size={18} />
+            Reports
           </NavLink>
         </div>
       )}

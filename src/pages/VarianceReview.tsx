@@ -11,9 +11,16 @@ import { supabase } from '../lib/supabase'
 import type { TransferAuditEntry, TransferMasterStatus, TransferMasterFull } from '../lib/types'
 import { formatDateTime } from '../utils/format'
 
-type Tab = 'queue' | 'completed'
+type Tab = 'queue' | 'investigation' | 'completed' | 'reopened'
 
-const QUEUE_STATUSES: TransferMasterStatus[] = ['Pending Warehouse Officer Review', 'Under Investigation']
+const TAB_LABELS: Record<Tab, string> = {
+  queue: 'Pending Review',
+  investigation: 'Under Investigation',
+  completed: 'Completed',
+  reopened: 'Reopened',
+}
+
+const REVIEWABLE_STATUSES: TransferMasterStatus[] = ['Pending Warehouse Officer Review', 'Under Investigation']
 const COMPLETED_STATUSES: TransferMasterStatus[] = ['Received', 'Approved with Variance', 'Rejected']
 
 export default function VarianceReview() {
@@ -34,16 +41,26 @@ export default function VarianceReview() {
 
   async function load(t: Tab) {
     setLoading(true)
-    const statuses = t === 'queue' ? QUEUE_STATUSES : COMPLETED_STATUSES
-    const { data } = await supabase
+    let query = supabase
       .from('transfer_master')
-      .select(
-        '*, receiver:users!received_by(full_name), reviewer:users!reviewed_by(full_name)',
-      )
-      .in('status', statuses)
+      .select('*, receiver:users!received_by(full_name), reviewer:users!reviewed_by(full_name)')
       .order('received_at', { ascending: false })
       .limit(200)
 
+    if (t === 'queue') {
+      query = query.eq('status', 'Pending Warehouse Officer Review')
+    } else if (t === 'investigation') {
+      query = query.eq('status', 'Under Investigation')
+    } else if (t === 'completed') {
+      query = query.in('status', COMPLETED_STATUSES)
+    } else {
+      // Reopened: back to Pending, awaiting a fresh scan — but only the
+      // ones that were actually reopened, not the normal never-yet-
+      // received backlog (that's Production/Receiver's domain).
+      query = query.eq('status', 'Pending').gt('reopened_count', 0).order('reviewed_at', { ascending: false })
+    }
+
+    const { data } = await query
     const mapped = (data ?? []).map((row: any) => ({
       ...row,
       receiver_name: row.receiver?.full_name,
@@ -105,30 +122,33 @@ export default function VarianceReview() {
     await load(tab)
   }
 
-  const isQueueItem = detail && QUEUE_STATUSES.includes(detail.status)
+  const isReviewable = detail && REVIEWABLE_STATUSES.includes(detail.status)
+  const isUnderInvestigation = detail?.status === 'Under Investigation'
   const isCompletedItem = detail && COMPLETED_STATUSES.includes(detail.status)
 
   return (
     <Layout title="Variance Review">
       <div className="flex flex-col gap-4">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTab('queue')}
-            className={`rounded-lg px-4 py-2 text-sm font-medium ${
-              tab === 'queue' ? 'bg-ink-900 text-white' : 'bg-white text-ink-600 border border-ink-200'
-            }`}
-          >
-            Pending Review
-          </button>
-          <button
-            onClick={() => setTab('completed')}
-            className={`rounded-lg px-4 py-2 text-sm font-medium ${
-              tab === 'completed' ? 'bg-ink-900 text-white' : 'bg-white text-ink-600 border border-ink-200'
-            }`}
-          >
-            Completed
-          </button>
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                tab === t ? 'bg-ink-900 text-white' : 'bg-white text-ink-600 border border-ink-200'
+              }`}
+            >
+              {TAB_LABELS[t]}
+            </button>
+          ))}
         </div>
+
+        {tab === 'reopened' && (
+          <p className="text-xs text-ink-400">
+            These were reopened and are back to "Pending" — awaiting the Receiver to scan the Transfer Barcode
+            again. They'll move to Pending Review or Completed once re-received.
+          </p>
+        )}
 
         <Card>
           {loading ? (
@@ -136,10 +156,7 @@ export default function VarianceReview() {
               <Spinner className="h-6 w-6 text-ink-400" />
             </div>
           ) : rows.length === 0 ? (
-            <EmptyState
-              icon={<ClipboardList size={32} />}
-              title={tab === 'queue' ? 'No variances awaiting review' : 'No completed transactions yet'}
-            />
+            <EmptyState icon={<ClipboardList size={32} />} title={`Nothing in ${TAB_LABELS[tab]}`} />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -176,7 +193,7 @@ export default function VarianceReview() {
                             {r.variance}
                           </span>
                         ) : (
-                          <span className="text-ink-400">0</span>
+                          <span className="text-ink-400">{tab === 'reopened' ? '—' : 0}</span>
                         )}
                       </td>
                       <td className="px-5 py-3 text-ink-500">{r.receiver_name ?? '—'}</td>
@@ -192,11 +209,12 @@ export default function VarianceReview() {
                           }
                         >
                           {r.status}
+                          {r.reopened_count > 0 && tab !== 'reopened' ? ` (reopened ×${r.reopened_count})` : ''}
                         </Badge>
                       </td>
                       <td className="px-5 py-3">
                         <Button variant="ghost" size="sm" onClick={() => void openDetail(r)}>
-                          Review
+                          {tab === 'reopened' ? 'View' : 'Review'}
                         </Button>
                       </td>
                     </tr>
@@ -214,14 +232,16 @@ export default function VarianceReview() {
         title={`Transfer ${detail?.transfer_barcode ?? ''}`}
         footer={
           <>
-            {isQueueItem && (
+            {isReviewable && (
               <>
                 <Button variant="danger" onClick={() => void handleAction('reject')} disabled={actionBusy}>
                   Reject
                 </Button>
-                <Button variant="secondary" onClick={() => void handleAction('investigate')} disabled={actionBusy}>
-                  Request Investigation
-                </Button>
+                {!isUnderInvestigation && (
+                  <Button variant="secondary" onClick={() => void handleAction('investigate')} disabled={actionBusy}>
+                    Request Investigation
+                  </Button>
+                )}
                 <Button variant="success" onClick={() => void handleAction('approve')} disabled={actionBusy}>
                   Approve
                 </Button>
@@ -252,7 +272,7 @@ export default function VarianceReview() {
               {detail.reopened_count > 0 && <Info label="Reopened" value={`${detail.reopened_count} time(s)`} />}
             </div>
 
-            {(isQueueItem || isCompletedItem) && (
+            {(isReviewable || isCompletedItem) && (
               <div>
                 <label htmlFor="review-remarks" className="mb-1.5 block text-sm font-medium text-ink-700">
                   Remarks

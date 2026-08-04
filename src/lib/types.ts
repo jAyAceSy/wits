@@ -130,6 +130,11 @@ export interface TransferMasterFull {
   production_area: string | null
   destination_warehouse: string | null
   remarks: string | null
+  production_date: string | null
+  pallet_number: string | null
+  print_count: number
+  last_printed_at: string | null
+  last_printed_by: string | null
   // joined
   receiver_name?: string
   reviewer_name?: string
@@ -226,6 +231,7 @@ export interface PalletLabel {
 export interface LabelPrintHistoryEntry {
   id: string
   pallet_label_id: string | null
+  transfer_master_id: string | null
   transfer_barcode: string
   printed_by: string | null
   printed_at: string
@@ -234,4 +240,24 @@ export interface LabelPrintHistoryEntry {
   is_reprint: boolean
   // joined
   printer_user_name?: string
+}
+
+/**
+ * The subset of transfer_master fields needed to render/print a label.
+ * Kept separate from TransferMasterFull so the print components
+ * (PalletLabelCard / PrintLabelSheet) don't need to know about
+ * receiving-specific fields like variance or status.
+ */
+export interface PrintableTransferRecord {
+  id: string
+  transfer_barcode: string
+  item_code: string
+  description: string
+  quantity: number
+  uom: string
+  destination_warehouse: string
+  production_date: string
+  pallet_number: string
+  print_count: number
+  last_printed_at: string | null
 }

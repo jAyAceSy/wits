@@ -95,6 +95,9 @@ export default function TransferImport() {
           description: r.description || null,
           uom: r.uom || null,
           transferred_quantity_raw: r.transferred_quantity_raw || null,
+          destination_warehouse: r.destination_warehouse || null,
+          production_date_raw: r.production_date_raw || null,
+          pallet_number: r.pallet_number || null,
         }))
         const { error: stagingError } = await supabase.from('transfer_import_staging').insert(chunk)
         if (stagingError) {
@@ -153,6 +156,9 @@ export default function TransferImport() {
             <h3 className="text-sm font-semibold text-ink-800">Upload Transfer Excel</h3>
             <p className="mt-1 text-xs text-ink-400">
               Columns expected: Transfer Barcode, Item Code, Description, UOM, Transferred Quantity
+              <br />
+              Optional (needed only if you'll print pallet labels): Destination Warehouse, Production Date, Pallet
+              Number
             </p>
           </CardHeader>
           <CardBody className="flex flex-col gap-4">

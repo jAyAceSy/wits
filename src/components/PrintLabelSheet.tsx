@@ -1,8 +1,8 @@
 import { PalletLabelCard } from './PalletLabelCard'
-import type { PalletLabel } from '../lib/types'
+import type { PrintableTransferRecord } from '../lib/types'
 
 interface PrintLabelSheetProps {
-  records: PalletLabel[]
+  records: PrintableTransferRecord[]
   companyName?: string
 }
 

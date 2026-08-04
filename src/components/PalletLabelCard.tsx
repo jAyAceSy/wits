@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import JsBarcode from 'jsbarcode'
-import type { PalletLabel } from '../lib/types'
+import type { PrintableTransferRecord } from '../lib/types'
 
 function BarcodeCanvas({ value }: { value: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
@@ -33,7 +33,7 @@ export function PalletLabelCard({
   record,
   companyName = 'SCPA Hygiene Products Inc.',
 }: {
-  record: PalletLabel
+  record: PrintableTransferRecord
   companyName?: string
 }) {
   return (

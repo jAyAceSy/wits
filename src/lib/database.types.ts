@@ -311,6 +311,11 @@ export interface Database {
           production_area: string | null
           destination_warehouse: string | null
           remarks: string | null
+          production_date: string | null
+          pallet_number: string | null
+          print_count: number
+          last_printed_at: string | null
+          last_printed_by: string | null
         }
         Insert: {
           id?: string
@@ -481,6 +486,7 @@ export interface Database {
         Row: {
           id: string
           pallet_label_id: string | null
+          transfer_master_id: string | null
           transfer_barcode: string
           printed_by: string | null
           printed_at: string
@@ -496,6 +502,13 @@ export interface Database {
             columns: ['pallet_label_id']
             isOneToOne: false
             referencedRelation: 'pallet_labels'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'label_print_history_transfer_master_id_fkey'
+            columns: ['transfer_master_id']
+            isOneToOne: false
+            referencedRelation: 'transfer_master'
             referencedColumns: ['id']
           },
         ]
