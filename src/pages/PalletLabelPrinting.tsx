@@ -14,7 +14,7 @@ import { PrintLabelSheet } from '../components/PrintLabelSheet'
 import { PalletLabelCard } from '../components/PalletLabelCard'
 import { formatDateTime } from '../utils/format'
 
-const COMPANY_NAME = 'SCPA Hygiene Products Inc.'
+const COMPANY_NAME = 'SCPA - DAVAO BRANCH'
 
 type Tab = 'records' | 'history'
 
