@@ -1,474 +1,361 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, ScanLine, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ScanLine } from 'lucide-react'
 import { Layout } from '../components/layout/Layout'
 import { Card, CardBody, CardHeader } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
-import { Badge } from '../components/ui/Badge'
-import { EmptyState } from '../components/ui/EmptyState'
-import { Spinner } from '../components/ui/Spinner'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
 import { useBarcodeScannerFocus } from '../hooks/useBarcodeScanner'
-import type { Product, TransferDetail, TransferHeader } from '../lib/types'
-import { formatDateTime } from '../utils/format'
+import type { ReceiverTransferView } from '../lib/types'
 
-type ScanFeedback = { type: 'error' | 'warning'; message: string } | null
+// -----------------------------------------------------------------------
+// SECURITY NOTE: this page must NEVER request, store, or display
+// Transferred Quantity or Variance for Transfer-Barcode entries. See the
+// same note in migration_004 / receiver_lookup_transfer(). Ad-hoc entries
+// have no "expected" value at all, so there's nothing to hide for those.
+// -----------------------------------------------------------------------
+
+type Mode = 'transfer_barcode' | 'ad_hoc'
+type Feedback = { type: 'error' | 'warning' | 'success'; message: string } | null
+
+interface AdhocProduct {
+  item_code: string
+  description: string
+  uom: string
+  matchedOn: string // the raw code that was scanned, for the submit call
+}
+
+interface LogEntry {
+  reference: string
+  item_code: string
+  description: string
+  quantity: number
+  mode: Mode
+  at: string
+}
 
 export default function NewTransfer() {
-  const navigate = useNavigate()
-  const { profile } = useAuth()
+  const [barcodeValue, setBarcodeValue] = useState('')
+  const [lookupBusy, setLookupBusy] = useState(false)
+  const [feedback, setFeedback] = useState<Feedback>(null)
 
-  const [header, setHeader] = useState<TransferHeader | null>(null)
-  const [initializing, setInitializing] = useState(true)
-  const [initError, setInitError] = useState<string | null>(null)
+  const [mode, setMode] = useState<Mode | null>(null)
+  const [pendingTransferItem, setPendingTransferItem] = useState<ReceiverTransferView | null>(null)
+  const [pendingAdhocProduct, setPendingAdhocProduct] = useState<AdhocProduct | null>(null)
 
-  const [warehouseReceiver, setWarehouseReceiver] = useState('')
+  const [quantity, setQuantity] = useState('')
   const [productionArea, setProductionArea] = useState('')
   const [destinationWarehouse, setDestinationWarehouse] = useState('')
   const [remarks, setRemarks] = useState('')
-
-  const [items, setItems] = useState<TransferDetail[]>([])
-  const [barcodeValue, setBarcodeValue] = useState('')
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
-  const [pendingQty, setPendingQty] = useState('1')
-  const [scanFeedback, setScanFeedback] = useState<ScanFeedback>(null)
-  const [scanBusy, setScanBusy] = useState(false)
-  const [addingItem, setAddingItem] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Fallback for when a barcode won't scan or isn't registered: look the
-  // item up by Item Code instead.
-  const [manualSearchOpen, setManualSearchOpen] = useState(false)
-  const [manualQuery, setManualQuery] = useState('')
-  const [manualResults, setManualResults] = useState<Product[]>([])
-  const [manualSearching, setManualSearching] = useState(false)
+  const [sessionLog, setSessionLog] = useState<LogEntry[]>([])
 
   const barcodeRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const [formFieldFocused, setFormFieldFocused] = useState(false)
 
-  // Keep the scanner input focused unless the user is deliberately typing
-  // into the quantity or a header text field, or an item is pending.
-  useBarcodeScannerFocus(barcodeRef, !pendingProduct && !formFieldFocused && !manualSearchOpen)
+  const hasPending = !!pendingTransferItem || !!pendingAdhocProduct
+  useBarcodeScannerFocus(barcodeRef, !hasPending && !formFieldFocused)
 
   useEffect(() => {
-    void initDraft()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function initDraft() {
-    setInitializing(true)
-    setInitError(null)
-    const { data, error } = await supabase
-      .from('transfer_headers')
-      .insert({})
-      .select()
-      .single()
-
-    if (error || !data) {
-      setInitError(error?.message ?? 'Could not start a new transfer.')
-      setInitializing(false)
-      return
+    if (hasPending) {
+      window.setTimeout(() => qtyRef.current?.focus(), 0)
     }
-    setHeader(data as TransferHeader)
-    setInitializing(false)
-  }
+  }, [hasPending])
 
-  const loadItems = useCallback(async (transferId: string) => {
-    const { data } = await supabase
-      .from('transfer_details')
-      .select('*')
-      .eq('transfer_id', transferId)
-      .order('scanned_at', { ascending: false })
-    setItems((data ?? []) as TransferDetail[])
-  }, [])
-
-  useEffect(() => {
-    if (header?.id) void loadItems(header.id)
-  }, [header?.id, loadItems])
-
-  async function handleBarcodeSubmit() {
+  async function handleScan() {
     const code = barcodeValue.trim()
-    if (!code || !header) return
+    if (!code) return
 
-    setScanFeedback(null)
-    setScanBusy(true)
+    setFeedback(null)
+    setLookupBusy(true)
+    setBarcodeValue('')
 
-    if (items.some((i) => i.barcode === code)) {
-      setScanFeedback({ type: 'warning', message: `"${code}" was already scanned in this transfer.` })
-      setBarcodeValue('')
-      setScanBusy(false)
+    // 1) Try it as a Transfer Barcode first (blind count flow).
+    const { data: tbData, error: tbError } = await supabase.rpc('receiver_lookup_transfer', { p_barcode: code })
+
+    if (!tbError && tbData && tbData.length > 0) {
+      setLookupBusy(false)
+      setMode('transfer_barcode')
+      setPendingTransferItem(tbData[0])
+      setQuantity('')
       return
     }
 
-    const { data: product, error } = await supabase
+    // 2) Not a known Transfer Barcode — try it as a Product barcode or
+    // Item Code instead (ad-hoc entry, no pre-declared expected qty).
+    const { data: product } = await supabase
       .from('products')
-      .select('*')
-      .eq('barcode', code)
+      .select('item_code, description, uom')
+      .or(`barcode.eq.${code},item_code.eq.${code}`)
       .eq('is_active', true)
       .maybeSingle()
 
-    setScanBusy(false)
+    setLookupBusy(false)
 
-    if (error || !product) {
-      setScanFeedback({
-        type: 'error',
-        message: `Unknown Barcode: "${code}" is not registered in Products. Try searching by Item Code below.`,
-      })
-      setBarcodeValue('')
-      setManualSearchOpen(true)
+    if (product) {
+      setMode('ad_hoc')
+      setPendingAdhocProduct({ ...product, matchedOn: code })
+      setQuantity('')
       return
     }
 
-    setBarcodeValue('')
-    selectProduct(product as Product)
-  }
-
-  // Shared by both the barcode scan flow and the manual Item Code search
-  // flow — whichever way the product was found, the rest of the "add
-  // item" experience is identical.
-  function selectProduct(product: Product) {
-    if (items.some((i) => i.barcode === product.barcode)) {
-      setScanFeedback({ type: 'warning', message: `${product.item_code} was already scanned in this transfer.` })
-      return
-    }
-    setScanFeedback(null)
-    setManualSearchOpen(false)
-    setManualQuery('')
-    setManualResults([])
-    setPendingProduct(product)
-    setPendingQty('1')
-    window.setTimeout(() => {
-      qtyRef.current?.focus()
-      qtyRef.current?.select()
-    }, 0)
-  }
-
-  // Debounced live search by Item Code, for when a barcode can't be
-  // scanned or isn't registered.
-  useEffect(() => {
-    if (!manualSearchOpen) return
-    const q = manualQuery.trim()
-    if (!q) {
-      setManualResults([])
-      return
-    }
-    setManualSearching(true)
-    const timer = window.setTimeout(async () => {
-      const { data } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true)
-        .ilike('item_code', `%${q}%`)
-        .order('item_code')
-        .limit(20)
-      setManualResults((data ?? []) as Product[])
-      setManualSearching(false)
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [manualQuery, manualSearchOpen])
-
-  async function handleAddItem() {
-    if (!header || !pendingProduct) return
-    const qty = Number(pendingQty)
-    if (!qty || qty <= 0) {
-      setScanFeedback({ type: 'error', message: 'Enter a quantity greater than zero.' })
-      return
-    }
-
-    setAddingItem(true)
-    const { error } = await supabase.from('transfer_details').insert({
-      transfer_id: header.id,
-      product_id: pendingProduct.id,
-      barcode: pendingProduct.barcode,
-      item_code: pendingProduct.item_code,
-      description: pendingProduct.description,
-      uom: pendingProduct.uom,
-      quantity: qty,
+    // 3) Neither system recognizes it.
+    setFeedback({
+      type: 'error',
+      message: `"${code}" was not found as a Transfer Barcode, Product Barcode, or Item Code.`,
     })
-    setAddingItem(false)
-
-    if (error) {
-      if (error.code === '23505') {
-        setScanFeedback({ type: 'warning', message: 'This item was already added to the transfer.' })
-      } else {
-        setScanFeedback({ type: 'error', message: error.message })
-      }
-      return
-    }
-
-    setPendingProduct(null)
-    setPendingQty('1')
-    await loadItems(header.id)
-    window.setTimeout(() => barcodeRef.current?.focus(), 0)
   }
 
-  async function handleRemoveItem(id: string) {
-    if (!header) return
-    await supabase.from('transfer_details').delete().eq('id', id)
-    await loadItems(header.id)
-    barcodeRef.current?.focus()
-  }
-
-  async function handleSubmitTransfer() {
-    if (!header) return
-    setSubmitError(null)
-
-    if (!warehouseReceiver.trim() || !productionArea.trim() || !destinationWarehouse.trim()) {
-      setSubmitError('Warehouse Receiver, Production Area, and Destination Warehouse are required.')
-      return
-    }
-    if (items.length === 0) {
-      setSubmitError('Scan at least one item before submitting.')
+  async function handleSubmitTransferBarcode() {
+    if (!pendingTransferItem) return
+    const qty = Number(quantity)
+    if (!qty || qty <= 0) {
+      setFeedback({ type: 'error', message: 'Enter a received quantity greater than zero.' })
       return
     }
 
     setSubmitting(true)
-    const { error } = await supabase
-      .from('transfer_headers')
-      .update({
-        warehouse_receiver: warehouseReceiver.trim(),
-        production_area: productionArea.trim(),
-        destination_warehouse: destinationWarehouse.trim(),
-        remarks: remarks.trim() || null,
-        status: 'submitted',
-      })
-      .eq('id', header.id)
+    const { data, error } = await supabase.rpc('submit_receiving', {
+      p_transfer_barcode: pendingTransferItem.transfer_barcode,
+      p_received_qty: qty,
+    })
     setSubmitting(false)
 
     if (error) {
-      setSubmitError(error.message)
+      setFeedback({ type: 'error', message: error.message })
       return
     }
 
-    navigate(`/transfers/${header.id}`, { replace: true })
+    setFeedback({ type: 'success', message: data ?? 'Receiving transaction submitted successfully.' })
+    setSessionLog((prev) => [
+      {
+        reference: pendingTransferItem.transfer_barcode,
+        item_code: pendingTransferItem.item_code,
+        description: pendingTransferItem.description,
+        quantity: qty,
+        mode: 'transfer_barcode',
+        at: new Date().toISOString(),
+      },
+      ...prev,
+    ])
+    resetPending()
   }
 
-  async function handleCancelDraft() {
-    if (!header) return navigate('/')
-    if (items.length > 0) {
-      const ok = window.confirm('Discard this transfer and its scanned items? This cannot be undone.')
-      if (!ok) return
+  async function handleSubmitAdhoc() {
+    if (!pendingAdhocProduct) return
+    const qty = Number(quantity)
+    if (!qty || qty <= 0) {
+      setFeedback({ type: 'error', message: 'Enter a quantity greater than zero.' })
+      return
     }
-    await supabase.from('transfer_headers').delete().eq('id', header.id)
-    navigate('/')
+    if (!productionArea.trim() || !destinationWarehouse.trim()) {
+      setFeedback({ type: 'error', message: 'Production Area and Destination Warehouse are required.' })
+      return
+    }
+
+    setSubmitting(true)
+    const { data: reference, error } = await supabase.rpc('submit_adhoc_transfer', {
+      p_code: pendingAdhocProduct.matchedOn,
+      p_quantity: qty,
+      p_production_area: productionArea.trim(),
+      p_destination_warehouse: destinationWarehouse.trim(),
+      p_remarks: remarks.trim() || null,
+    })
+    setSubmitting(false)
+
+    if (error) {
+      setFeedback({ type: 'error', message: error.message })
+      return
+    }
+
+    setFeedback({ type: 'success', message: `Recorded as ${reference}.` })
+    setSessionLog((prev) => [
+      {
+        reference: reference ?? '—',
+        item_code: pendingAdhocProduct.item_code,
+        description: pendingAdhocProduct.description,
+        quantity: qty,
+        mode: 'ad_hoc',
+        at: new Date().toISOString(),
+      },
+      ...prev,
+    ])
+    // Production Area / Destination Warehouse are deliberately NOT
+    // cleared — usually the next few scans are going to the same place.
+    setRemarks('')
+    resetPending()
   }
 
-  if (initializing) {
-    return (
-      <Layout title="New Transfer">
-        <div className="flex justify-center py-20">
-          <Spinner className="h-7 w-7 text-ink-400" />
-        </div>
-      </Layout>
-    )
+  function resetPending() {
+    setMode(null)
+    setPendingTransferItem(null)
+    setPendingAdhocProduct(null)
+    setQuantity('')
+    window.setTimeout(() => barcodeRef.current?.focus(), 0)
   }
 
-  if (initError || !header) {
-    return (
-      <Layout title="New Transfer">
-        <EmptyState
-          icon={<AlertTriangle size={32} />}
-          title="Could not start a new transfer"
-          description={initError ?? undefined}
-          action={<Button onClick={() => void initDraft()}>Try again</Button>}
-        />
-      </Layout>
-    )
+  function handleCancelPending() {
+    setFeedback(null)
+    resetPending()
   }
 
   return (
     <Layout title="New Transfer">
-      <div className="flex flex-col gap-6 pb-24">
-        {/* Auto-generated header info */}
-        <Card>
-          <CardBody className="flex flex-wrap items-center gap-x-8 gap-y-2">
-            <HeaderStat label="Transfer Number" value={header.transfer_number} mono />
-            <HeaderStat label="Date" value={header.transfer_date} />
-            <HeaderStat label="Time Stamp" value={formatDateTime(header.created_at)} />
-            <HeaderStat label="Prepared By" value={profile?.full_name ?? '—'} />
-          </CardBody>
-        </Card>
-
-        {/* Transfer details form */}
-        <Card>
-          <CardHeader>
-            <h3 className="text-sm font-semibold text-ink-800">Transfer Details</h3>
-          </CardHeader>
-          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input
-              label="Warehouse Receiver *"
-              value={warehouseReceiver}
-              onChange={(e) => setWarehouseReceiver(e.target.value)}
-              onFocus={() => setFormFieldFocused(true)}
-              onBlur={() => setFormFieldFocused(false)}
-              placeholder="Name of receiving personnel"
-            />
-            <Input
-              label="Production Area *"
-              value={productionArea}
-              onChange={(e) => setProductionArea(e.target.value)}
-              onFocus={() => setFormFieldFocused(true)}
-              onBlur={() => setFormFieldFocused(false)}
-              placeholder="e.g. Line 2 – Packing"
-            />
-            <Input
-              label="Destination Warehouse *"
-              value={destinationWarehouse}
-              onChange={(e) => setDestinationWarehouse(e.target.value)}
-              onFocus={() => setFormFieldFocused(true)}
-              onBlur={() => setFormFieldFocused(false)}
-              placeholder="e.g. Main Warehouse – Bay 3"
-            />
-            <Input
-              label="Remarks (optional)"
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              onFocus={() => setFormFieldFocused(true)}
-              onBlur={() => setFormFieldFocused(false)}
-              placeholder="Any notes for this transfer"
-            />
-          </CardBody>
-        </Card>
-
-        {/* Scan station */}
+      <div className="flex flex-col gap-6">
         <Card>
           <CardHeader className="flex items-center gap-2">
             <ScanLine size={16} className="text-signal-600" />
-            <h3 className="text-sm font-semibold text-ink-800">Scan Items</h3>
+            <h3 className="text-sm font-semibold text-ink-800">Scan</h3>
           </CardHeader>
           <CardBody className="flex flex-col gap-4">
+            <p className="text-sm text-ink-500">
+              Scan the pallet's Transfer Barcode if it has one. If it doesn't, scan the product barcode (or type
+              the Item Code) instead and enter the quantity yourself.
+            </p>
+
             <div>
-              <label htmlFor="barcode" className="mb-1.5 block text-sm font-medium text-ink-700">
-                Barcode
+              <label htmlFor="scan-code" className="mb-1.5 block text-sm font-medium text-ink-700">
+                Transfer Barcode / Product Barcode / Item Code
               </label>
               <input
                 ref={barcodeRef}
-                id="barcode"
+                id="scan-code"
                 autoComplete="off"
                 inputMode="none"
                 value={barcodeValue}
-                disabled={!!pendingProduct}
+                disabled={hasPending}
                 onChange={(e) => setBarcodeValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
-                    void handleBarcodeSubmit()
+                    void handleScan()
                   }
                 }}
-                placeholder="Scan or type a barcode, then press Enter"
+                placeholder="Scan or type, then press Enter"
                 className="w-full rounded-xl border-2 border-ink-200 bg-ink-50 px-4 py-4 text-lg font-semibold tracking-wide text-ink-900 focus:border-signal-500 focus:bg-white disabled:opacity-60"
               />
-              {scanBusy && <p className="mt-1 text-xs text-ink-400">Looking up product…</p>}
-              {!pendingProduct && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualSearchOpen((v) => !v)
-                    setScanFeedback(null)
-                  }}
-                  className="mt-2 text-xs font-medium text-signal-600 hover:underline"
-                >
-                  {manualSearchOpen ? 'Hide item code search' : "Can't scan the barcode? Search by Item Code"}
-                </button>
-              )}
+              {lookupBusy && <p className="mt-1 text-xs text-ink-400">Looking up…</p>}
             </div>
 
-            {manualSearchOpen && !pendingProduct && (
-              <div className="rounded-xl border border-ink-200 bg-ink-50 p-4">
-                <label htmlFor="manual-item-code" className="mb-1.5 block text-sm font-medium text-ink-700">
-                  Search by Item Code
-                </label>
-                <input
-                  id="manual-item-code"
-                  autoFocus
-                  autoComplete="off"
-                  value={manualQuery}
-                  onChange={(e) => setManualQuery(e.target.value)}
-                  placeholder="Start typing an item code…"
-                  className="w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm focus:border-signal-500"
-                />
-                {manualSearching && <p className="mt-2 text-xs text-ink-400">Searching…</p>}
-                {!manualSearching && manualQuery.trim() && manualResults.length === 0 && (
-                  <p className="mt-2 text-xs text-ink-400">No matching item codes found.</p>
-                )}
-                {manualResults.length > 0 && (
-                  <div className="mt-3 divide-y divide-ink-200 overflow-hidden rounded-lg border border-ink-200 bg-white">
-                    {manualResults.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => selectProduct(p)}
-                        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left text-sm hover:bg-ink-50"
-                      >
-                        <span>
-                          <span className="font-semibold text-ink-800">{p.item_code}</span>{' '}
-                          <span className="text-ink-500">— {p.description}</span>
-                        </span>
-                        <span className="shrink-0 text-xs font-mono text-ink-400">{p.barcode}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {scanFeedback && (
+            {feedback && (
               <div
                 className={
-                  scanFeedback.type === 'error'
+                  feedback.type === 'error'
                     ? 'flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700'
-                    : 'flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700'
+                    : feedback.type === 'warning'
+                      ? 'flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700'
+                      : 'flex items-center gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm font-medium text-ok-600'
                 }
               >
-                <AlertTriangle size={16} />
-                {scanFeedback.message}
+                {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                {feedback.message}
               </div>
             )}
 
-            {pendingProduct && (
-              <div className="scan-pulse rounded-xl border border-ok-500/30 bg-green-50 p-4">
-                <div className="mb-3 flex items-center gap-2 text-ok-600">
-                  <CheckCircle2 size={18} />
-                  <span className="text-sm font-semibold">Item Found</span>
+            {/* Transfer Barcode flow — blind count, no expected qty shown */}
+            {mode === 'transfer_barcode' && pendingTransferItem && (
+              <div className="scan-pulse rounded-xl border border-ink-200 bg-ink-50 p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-signal-600">
+                  Transfer Barcode — Independent Count
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                  <Field label="Item Code" value={pendingProduct.item_code} />
-                  <Field label="Description" value={pendingProduct.description} />
-                  <Field label="UOM" value={pendingProduct.uom} />
+                  <Field label="Transfer Barcode" value={pendingTransferItem.transfer_barcode} mono />
+                  <Field label="Item Code" value={pendingTransferItem.item_code} />
+                  <Field label="Description" value={pendingTransferItem.description} />
+                  <Field label="UOM" value={pendingTransferItem.uom} />
+                </div>
+                <div className="mt-4 max-w-xs">
+                  <label htmlFor="qty" className="mb-1.5 block text-sm font-medium text-ink-700">
+                    Received Quantity (your physical count)
+                  </label>
+                  <input
+                    ref={qtyRef}
+                    id="qty"
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void handleSubmitTransferBarcode()
+                      }
+                    }}
+                    className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-base font-semibold"
+                  />
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button onClick={() => void handleSubmitTransferBarcode()} disabled={submitting} size="lg">
+                    {submitting ? 'Submitting…' : 'Submit'}
+                  </Button>
+                  <Button variant="secondary" onClick={handleCancelPending}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Ad-hoc flow — no Transfer Barcode, self-declared quantity */}
+            {mode === 'ad_hoc' && pendingAdhocProduct && (
+              <div className="scan-pulse rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  No Transfer Barcode Found — Manual Entry
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                  <Field label="Item Code" value={pendingAdhocProduct.item_code} />
+                  <Field label="Description" value={pendingAdhocProduct.description} />
+                  <Field label="UOM" value={pendingAdhocProduct.uom} />
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    label="Production Area *"
+                    value={productionArea}
+                    onChange={(e) => setProductionArea(e.target.value)}
+                    onFocus={() => setFormFieldFocused(true)}
+                    onBlur={() => setFormFieldFocused(false)}
+                    placeholder="e.g. Line 2 – Packing"
+                  />
+                  <Input
+                    label="Destination Warehouse *"
+                    value={destinationWarehouse}
+                    onChange={(e) => setDestinationWarehouse(e.target.value)}
+                    onFocus={() => setFormFieldFocused(true)}
+                    onBlur={() => setFormFieldFocused(false)}
+                    placeholder="e.g. Main Warehouse – Bay 3"
+                  />
                   <div>
-                    <p className="mb-1 text-xs font-medium text-ink-400">Quantity</p>
+                    <label htmlFor="adhoc-qty" className="mb-1.5 block text-sm font-medium text-ink-700">
+                      Quantity *
+                    </label>
                     <input
                       ref={qtyRef}
+                      id="adhoc-qty"
                       type="number"
                       min="0.01"
                       step="any"
-                      value={pendingQty}
-                      onChange={(e) => setPendingQty(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          void handleAddItem()
-                        }
-                      }}
-                      className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-base font-semibold"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      className="w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm font-semibold"
                     />
                   </div>
+                  <Input
+                    label="Remarks (optional)"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    onFocus={() => setFormFieldFocused(true)}
+                    onBlur={() => setFormFieldFocused(false)}
+                  />
                 </div>
+
                 <div className="mt-4 flex gap-2">
-                  <Button onClick={() => void handleAddItem()} disabled={addingItem} size="lg">
-                    {addingItem ? 'Adding…' : 'Add Item'}
+                  <Button onClick={() => void handleSubmitAdhoc()} disabled={submitting} size="lg">
+                    {submitting ? 'Submitting…' : 'Submit'}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setPendingProduct(null)
-                      window.setTimeout(() => barcodeRef.current?.focus(), 0)
-                    }}
-                  >
+                  <Button variant="secondary" onClick={handleCancelPending}>
                     Cancel
                   </Button>
                 </div>
@@ -477,87 +364,51 @@ export default function NewTransfer() {
           </CardBody>
         </Card>
 
-        {/* Scanned items list */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ink-800">Scanned Items</h3>
-            <Badge tone="info">{items.length} line(s)</Badge>
-          </CardHeader>
-          {items.length === 0 ? (
-            <EmptyState title="No items scanned yet" description="Scan a barcode above to add the first item." />
-          ) : (
+        {sessionLog.length > 0 && (
+          <Card>
+            <CardHeader>
+              <h3 className="text-sm font-semibold text-ink-800">Recorded This Session</h3>
+            </CardHeader>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-400">
+                    <th className="px-5 py-2">Reference</th>
                     <th className="px-5 py-2">Item Code</th>
                     <th className="px-5 py-2">Description</th>
-                    <th className="px-5 py-2">UOM</th>
                     <th className="px-5 py-2">Qty</th>
-                    <th className="px-5 py-2"></th>
+                    <th className="px-5 py-2">Type</th>
+                    <th className="px-5 py-2">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
-                  {items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-5 py-3 font-medium text-ink-800">{item.item_code}</td>
-                      <td className="px-5 py-3 text-ink-600">{item.description}</td>
-                      <td className="px-5 py-3 text-ink-500">{item.uom}</td>
-                      <td className="px-5 py-3 font-semibold text-ink-800">{item.quantity}</td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          onClick={() => void handleRemoveItem(item.id)}
-                          className="rounded-md p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label={`Remove ${item.item_code}`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                  {sessionLog.map((r) => (
+                    <tr key={r.reference + r.at}>
+                      <td className="px-5 py-3 font-mono text-xs text-ink-500">{r.reference}</td>
+                      <td className="px-5 py-3 font-medium text-ink-800">{r.item_code}</td>
+                      <td className="px-5 py-3 text-ink-600">{r.description}</td>
+                      <td className="px-5 py-3 font-semibold text-ink-800">{r.quantity}</td>
+                      <td className="px-5 py-3 text-ink-500">
+                        {r.mode === 'transfer_barcode' ? 'Transfer Barcode' : 'Manual'}
                       </td>
+                      <td className="px-5 py-3 text-ink-400">{new Date(r.at).toLocaleTimeString()}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Sticky submit bar */}
-      <div className="fixed inset-x-0 bottom-0 border-t border-ink-100 bg-white/95 px-4 py-3 backdrop-blur lg:pl-64">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
-          <div className="min-w-0">
-            {submitError && <p className="truncate text-xs font-medium text-red-600">{submitError}</p>}
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button variant="secondary" onClick={() => void handleCancelDraft()}>
-              Cancel
-            </Button>
-            <Button size="lg" onClick={() => void handleSubmitTransfer()} disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit Transfer'}
-            </Button>
-          </div>
-        </div>
+          </Card>
+        )}
       </div>
     </Layout>
   )
 }
 
-function HeaderStat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{label}</p>
-      <p className={mono ? 'font-mono text-sm font-semibold text-ink-900' : 'text-sm font-semibold text-ink-900'}>
-        {value}
-      </p>
-    </div>
-  )
-}
-
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-ink-400">{label}</p>
-      <p className="font-semibold text-ink-900">{value}</p>
+      <p className={mono ? 'font-mono text-sm font-semibold text-ink-900' : 'font-semibold text-ink-900'}>{value}</p>
     </div>
   )
 }

@@ -10,8 +10,8 @@ import {
   Search,
   Boxes,
   FileSpreadsheet,
-  PackageCheck,
   ClipboardList,
+  Printer,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -38,7 +38,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     )
 
   const showWarehouseSection = isReceiver
-  const showReceivingSection = isReceiver || isProduction
   const showAdminSection = isAdmin
 
   return (
@@ -74,23 +73,15 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
 
-      {showReceivingSection && (
+      {isProduction && (
         <div className="mt-5 flex flex-col gap-1">
           <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
-            Transfer Receiving
+            Transfer Management
           </p>
-          {isReceiver && (
-            <NavLink to="/receive-transfer" className={linkClass} onClick={onNavigate}>
-              <PackageCheck size={18} />
-              Receive Transfer
-            </NavLink>
-          )}
-          {isProduction && (
-            <NavLink to="/transfer-management" className={linkClass} onClick={onNavigate}>
-              <FileSpreadsheet size={18} />
-              Transfer Management
-            </NavLink>
-          )}
+          <NavLink to="/transfer-management" className={linkClass} onClick={onNavigate}>
+            <FileSpreadsheet size={18} />
+            Upload Transfer Excel
+          </NavLink>
         </div>
       )}
 
@@ -102,6 +93,18 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <NavLink to="/variance-review" className={linkClass} onClick={onNavigate}>
             <ClipboardList size={18} />
             Variance Review
+          </NavLink>
+        </div>
+      )}
+
+      {(isOfficer || isProduction) && (
+        <div className="mt-5 flex flex-col gap-1">
+          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Label Printing
+          </p>
+          <NavLink to="/label-printing" className={linkClass} onClick={onNavigate}>
+            <Printer size={18} />
+            Print Transfer Labels
           </NavLink>
         </div>
       )}

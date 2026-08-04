@@ -19,7 +19,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Spinner } from '../components/ui/Spinner'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import type { TransferHeader, TransferImportBatch } from '../lib/types'
+import type { ReceiverTransferLogEntry, TransferImportBatch } from '../lib/types'
 import { formatDateTime, startOfMonthIso, todayIsoDate } from '../utils/format'
 
 interface Stats {
@@ -39,9 +39,9 @@ interface OfficerStats {
 }
 
 export default function Dashboard() {
-  const { profile, isAdmin, isOfficer, isReceiver } = useAuth()
+  const { profile, isOfficer, isReceiver } = useAuth()
   const [stats, setStats] = useState<Stats | null>(null)
-  const [recent, setRecent] = useState<TransferHeader[]>([])
+  const [recent, setRecent] = useState<ReceiverTransferLogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [officerStats, setOfficerStats] = useState<OfficerStats | null>(null)
   const [latestUploads, setLatestUploads] = useState<TransferImportBatch[]>([])
@@ -120,45 +120,20 @@ export default function Dashboard() {
     const today = todayIsoDate()
     const monthStart = startOfMonthIso()
 
-    let todayQuery = supabase
-      .from('transfer_headers')
-      .select('id, total_items, total_qty', { count: 'exact' })
-      .eq('transfer_date', today)
-      .eq('status', 'submitted')
+    const { data } = await supabase.rpc('receiver_my_transfers')
+    const rows = (data ?? []) as ReceiverTransferLogEntry[]
 
-    let monthQuery = supabase
-      .from('transfer_headers')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', monthStart)
-      .eq('status', 'submitted')
-
-    let recentQuery = supabase
-      .from('transfer_headers')
-      .select('id, transfer_number, transfer_date, created_at, warehouse_receiver, production_area, destination_warehouse, total_items, total_qty, status, created_by, remarks, creator:users!created_by(full_name)')
-      .order('created_at', { ascending: false })
-      .limit(8)
-
-    if (!isAdmin && profile?.id) {
-      todayQuery = todayQuery.eq('created_by', profile.id)
-      monthQuery = monthQuery.eq('created_by', profile.id)
-      recentQuery = recentQuery.eq('created_by', profile.id)
-    }
-
-    const [todayRes, monthRes, recentRes] = await Promise.all([todayQuery, monthQuery, recentQuery])
-
-    const todaysItems = (todayRes.data ?? []).reduce((sum, r: { total_qty: number }) => sum + Number(r.total_qty ?? 0), 0)
+    const todaysRows = rows.filter((r) => r.received_at.slice(0, 10) === today)
+    const monthRows = rows.filter((r) => r.received_at >= monthStart)
+    const todaysItems = todaysRows.reduce((sum, r) => sum + Number(r.received_quantity ?? 0), 0)
 
     setStats({
-      todaysTransfers: todayRes.count ?? todayRes.data?.length ?? 0,
+      todaysTransfers: todaysRows.length,
       todaysItems,
-      monthTransfers: monthRes.count ?? 0,
+      monthTransfers: monthRows.length,
     })
 
-    const mapped = (recentRes.data ?? []).map((row: any) => ({
-      ...row,
-      creator_name: row.creator?.full_name,
-    })) as TransferHeader[]
-    setRecent(mapped)
+    setRecent(rows.slice(0, 8))
     setLoading(false)
   }
 
@@ -270,28 +245,29 @@ export default function Dashboard() {
                 <EmptyState
                   icon={<Boxes size={32} />}
                   title="No transfers yet"
-                  description="Transfers you submit will show up here."
+                  description="Transfers you record will show up here."
                 />
               ) : (
                 <div className="divide-y divide-ink-100">
                   {recent.map((t) => (
-                    <Link
-                      key={t.id}
-                      to={`/transfers/${t.id}`}
-                      className="flex flex-col gap-1 px-5 py-3 hover:bg-ink-50 sm:flex-row sm:items-center sm:justify-between"
+                    <div
+                      key={t.transfer_barcode}
+                      className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div>
-                        <p className="text-sm font-semibold text-ink-800">{t.transfer_number}</p>
+                        <p className="text-sm font-semibold text-ink-800">{t.item_code}</p>
                         <p className="text-xs text-ink-400">
-                          {t.production_area} → {t.destination_warehouse}
-                          {isAdmin && t.creator_name ? ` · ${t.creator_name}` : ''}
+                          {t.description}
+                          {t.entry_type === 'ad_hoc' ? ' · Manual' : ' · Transfer Barcode'}
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-ink-400">{formatDateTime(t.created_at)}</span>
-                        <Badge tone="success">{t.total_items} items</Badge>
+                        <span className="text-xs text-ink-400">{formatDateTime(t.received_at)}</span>
+                        <Badge tone="success">
+                          {t.received_quantity} {t.uom}
+                        </Badge>
                       </div>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               )}

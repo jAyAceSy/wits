@@ -146,6 +146,7 @@ export default function VarianceReview() {
                 <thead>
                   <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-400">
                     <th className="px-5 py-3">Transfer Barcode</th>
+                    <th className="px-5 py-3">Type</th>
                     <th className="px-5 py-3">Item Code</th>
                     <th className="px-5 py-3">Transferred</th>
                     <th className="px-5 py-3">Received</th>
@@ -160,6 +161,11 @@ export default function VarianceReview() {
                   {rows.map((r) => (
                     <tr key={r.id} className="hover:bg-ink-50">
                       <td className="px-5 py-3 font-mono text-xs text-ink-600">{r.transfer_barcode}</td>
+                      <td className="px-5 py-3">
+                        <Badge tone={r.entry_type === 'ad_hoc' ? 'neutral' : 'info'}>
+                          {r.entry_type === 'ad_hoc' ? 'Manual' : 'Transfer Barcode'}
+                        </Badge>
+                      </td>
                       <td className="px-5 py-3 font-medium text-ink-800">{r.item_code}</td>
                       <td className="px-5 py-3 text-ink-700">{r.transferred_quantity}</td>
                       <td className="px-5 py-3 text-ink-700">{r.received_quantity ?? '—'}</td>

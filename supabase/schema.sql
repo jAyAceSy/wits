@@ -394,5 +394,16 @@ create policy audit_logs_select on public.audit_logs
 -- Realtime (optional but recommended): lets the dashboard/history pages
 -- update live when other warehouse users submit transfers.
 -- =====================================================================
-alter publication supabase_realtime add table public.transfer_headers;
-alter publication supabase_realtime add table public.transfer_details;
+-- Wrapped so this file can be safely re-run without erroring if these
+-- tables were already added to the publication in a previous run.
+do $$
+begin
+  alter publication supabase_realtime add table public.transfer_headers;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.transfer_details;
+exception when duplicate_object then null;
+end $$;

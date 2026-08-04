@@ -307,6 +307,10 @@ export interface Database {
           reviewed_at: string | null
           review_remarks: string | null
           reopened_count: number
+          entry_type: 'transfer_barcode' | 'ad_hoc'
+          production_area: string | null
+          destination_warehouse: string | null
+          remarks: string | null
         }
         Insert: {
           id?: string
@@ -358,6 +362,144 @@ export interface Database {
           },
         ]
       }
+      pallet_label_batches: {
+        Row: {
+          id: string
+          batch_number: string | null
+          filename: string
+          uploaded_by: string
+          uploaded_at: string
+          total_records: number
+          imported_records: number
+          duplicate_records: number
+          invalid_records: number
+          status: string
+        }
+        Insert: {
+          id?: string
+          batch_number?: string | null
+          filename: string
+          uploaded_by?: string
+          uploaded_at?: string
+          total_records?: number
+          imported_records?: number
+          duplicate_records?: number
+          invalid_records?: number
+          status?: string
+        }
+        Update: {
+          total_records?: number
+          imported_records?: number
+          duplicate_records?: number
+          invalid_records?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'pallet_label_batches_uploaded_by_fkey'
+            columns: ['uploaded_by']
+            isOneToOne: false
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      pallet_label_staging: {
+        Row: {
+          id: string
+          batch_id: string
+          row_number: number
+          transfer_barcode: string | null
+          item_code: string | null
+          description: string | null
+          quantity_raw: string | null
+          quantity: number | null
+          uom: string | null
+          destination_warehouse: string | null
+          production_date_raw: string | null
+          production_date: string | null
+          pallet_number: string | null
+          validation_status: ImportValidationStatus | null
+          validation_errors: string[] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          batch_id: string
+          row_number: number
+          transfer_barcode?: string | null
+          item_code?: string | null
+          description?: string | null
+          quantity_raw?: string | null
+          uom?: string | null
+          destination_warehouse?: string | null
+          production_date_raw?: string | null
+          pallet_number?: string | null
+          created_at?: string
+        }
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: 'pallet_label_staging_batch_id_fkey'
+            columns: ['batch_id']
+            isOneToOne: false
+            referencedRelation: 'pallet_label_batches'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      pallet_labels: {
+        Row: {
+          id: string
+          transfer_barcode: string
+          item_code: string
+          description: string
+          quantity: number
+          uom: string
+          destination_warehouse: string
+          production_date: string
+          pallet_number: string
+          batch_id: string | null
+          print_count: number
+          last_printed_at: string | null
+          last_printed_by: string | null
+          created_at: string
+        }
+        Insert: never
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: 'pallet_labels_batch_id_fkey'
+            columns: ['batch_id']
+            isOneToOne: false
+            referencedRelation: 'pallet_label_batches'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      label_print_history: {
+        Row: {
+          id: string
+          pallet_label_id: string | null
+          transfer_barcode: string
+          printed_by: string | null
+          printed_at: string
+          printer_name: string | null
+          print_status: string
+          is_reprint: boolean
+        }
+        Insert: never
+        Update: never
+        Relationships: [
+          {
+            foreignKeyName: 'label_print_history_pallet_label_id_fkey'
+            columns: ['pallet_label_id']
+            isOneToOne: false
+            referencedRelation: 'pallet_labels'
+            referencedColumns: ['id']
+          },
+        ]
+      }
     }
     Views: Record<string, never>
     Functions: {
@@ -386,6 +528,36 @@ export interface Database {
       reopen_transfer: {
         Args: { p_transfer_id: string; p_remarks?: string | null }
         Returns: undefined
+      }
+      process_pallet_label_import: {
+        Args: { p_batch_id: string }
+        Returns: Json
+      }
+      record_label_print: {
+        Args: { p_transfer_barcode: string; p_printer_name?: string | null; p_is_reprint?: boolean }
+        Returns: undefined
+      }
+      submit_adhoc_transfer: {
+        Args: {
+          p_code: string
+          p_quantity: number
+          p_production_area: string
+          p_destination_warehouse: string
+          p_remarks?: string | null
+        }
+        Returns: string
+      }
+      receiver_my_transfers: {
+        Args: Record<string, never>
+        Returns: {
+          transfer_barcode: string
+          item_code: string
+          description: string
+          uom: string
+          received_quantity: number
+          received_at: string
+          entry_type: string
+        }[]
       }
     }
     Enums: {

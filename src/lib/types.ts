@@ -126,9 +126,28 @@ export interface TransferMasterFull {
   reviewed_at: string | null
   review_remarks: string | null
   reopened_count: number
+  entry_type: 'transfer_barcode' | 'ad_hoc'
+  production_area: string | null
+  destination_warehouse: string | null
+  remarks: string | null
   // joined
   receiver_name?: string
   reviewer_name?: string
+}
+
+/**
+ * What a Receiver sees in their own history. Deliberately excludes
+ * transferred_quantity, variance, AND status — status alone would leak
+ * whether a mismatch occurred, so it's permanently omitted here too.
+ */
+export interface ReceiverTransferLogEntry {
+  transfer_barcode: string
+  item_code: string
+  description: string
+  uom: string
+  received_quantity: number
+  received_at: string
+  entry_type: 'transfer_barcode' | 'ad_hoc'
 }
 
 export interface TransferAuditEntry {
@@ -147,4 +166,72 @@ export interface TransferAuditEntry {
   created_at: string
   // joined
   performer_name?: string
+}
+
+// ---------------------------------------------------------------------
+// Transfer Barcode Label Printing (Honeywell PD43, 100x150mm)
+// ---------------------------------------------------------------------
+
+export interface PalletLabelBatch {
+  id: string
+  batch_number: string | null
+  filename: string
+  uploaded_by: string
+  uploaded_at: string
+  total_records: number
+  imported_records: number
+  duplicate_records: number
+  invalid_records: number
+  status: string
+  // joined
+  uploader_name?: string
+}
+
+export interface PalletLabelStagingRow {
+  id: string
+  batch_id: string
+  row_number: number
+  transfer_barcode: string | null
+  item_code: string | null
+  description: string | null
+  quantity_raw: string | null
+  quantity: number | null
+  uom: string | null
+  destination_warehouse: string | null
+  production_date_raw: string | null
+  production_date: string | null
+  pallet_number: string | null
+  validation_status: ImportValidationStatus | null
+  validation_errors: string[] | null
+  created_at: string
+}
+
+export interface PalletLabel {
+  id: string
+  transfer_barcode: string
+  item_code: string
+  description: string
+  quantity: number
+  uom: string
+  destination_warehouse: string
+  production_date: string
+  pallet_number: string
+  batch_id: string | null
+  print_count: number
+  last_printed_at: string | null
+  last_printed_by: string | null
+  created_at: string
+}
+
+export interface LabelPrintHistoryEntry {
+  id: string
+  pallet_label_id: string | null
+  transfer_barcode: string
+  printed_by: string | null
+  printed_at: string
+  printer_name: string | null
+  print_status: string
+  is_reprint: boolean
+  // joined
+  printer_user_name?: string
 }

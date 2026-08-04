@@ -15,15 +15,16 @@ import { exportToExcel, exportToPdf } from '../utils/export'
 type ReportType = 'daily' | 'monthly' | 'user'
 
 interface ReportRow {
-  transfer_number: string
-  transfer_date: string
+  transfer_barcode: string
   created_at: string
-  warehouse_receiver: string
-  production_area: string
-  destination_warehouse: string
-  total_items: number
-  total_qty: number
-  creator_name: string
+  item_code: string
+  description: string
+  transferred_quantity: number
+  received_quantity: number | null
+  variance: number | null
+  status: string
+  entry_type: string
+  receiver_name: string
 }
 
 export default function Reports() {
@@ -49,32 +50,31 @@ export default function Reports() {
     setRan(true)
 
     let query = supabase
-      .from('transfer_headers')
+      .from('transfer_master')
       .select(
-        'transfer_number, transfer_date, created_at, warehouse_receiver, production_area, destination_warehouse, total_items, total_qty, creator:users!created_by(full_name)',
+        'transfer_barcode, created_at, item_code, description, transferred_quantity, received_quantity, variance, status, entry_type, receiver:users!received_by(full_name)',
       )
-      .eq('status', 'submitted')
       .order('created_at', { ascending: false })
 
     if (reportType === 'daily') {
-      query = query.eq('transfer_date', date)
+      query = query.gte('created_at', `${date}T00:00:00`).lt('created_at', `${date}T23:59:59.999`)
     } else if (reportType === 'monthly') {
       const start = `${month}-01`
       const end = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1).toISOString().slice(0, 10)
-      query = query.gte('transfer_date', start).lt('transfer_date', end)
+      query = query.gte('created_at', `${start}T00:00:00`).lt('created_at', `${end}T00:00:00`)
     } else if (reportType === 'user') {
       if (!userId) {
         setRows([])
         setLoading(false)
         return
       }
-      query = query.eq('created_by', userId)
+      query = query.eq('received_by', userId)
     }
 
     const { data } = await query
     const mapped = (data ?? []).map((row: any) => ({
       ...row,
-      creator_name: row.creator?.full_name ?? '',
+      receiver_name: row.receiver?.full_name ?? '',
     })) as ReportRow[]
     setRows(mapped)
     setLoading(false)
@@ -97,14 +97,16 @@ export default function Reports() {
       reportTitle.replace(/\s+/g, '_'),
       'Report',
       rows.map((r) => ({
-        'Transfer #': r.transfer_number,
-        Date: r.transfer_date,
-        'Prepared By': r.creator_name,
-        'Production Area': r.production_area,
-        'Destination Warehouse': r.destination_warehouse,
-        'Warehouse Receiver': r.warehouse_receiver,
-        'Total Items': r.total_items,
-        'Total Qty': r.total_qty,
+        'Transfer Barcode': r.transfer_barcode,
+        Date: formatDateTime(r.created_at),
+        'Received By': r.receiver_name,
+        'Item Code': r.item_code,
+        Description: r.description,
+        'Transferred Qty': r.transferred_quantity,
+        'Received Qty': r.received_quantity ?? '',
+        Variance: r.variance ?? '',
+        Status: r.status,
+        Type: r.entry_type === 'transfer_barcode' ? 'Transfer Barcode' : 'Manual',
       })),
     )
   }
@@ -113,21 +115,22 @@ export default function Reports() {
     exportToPdf(
       reportTitle.replace(/\s+/g, '_'),
       reportTitle,
-      ['Transfer #', 'Date', 'Prepared By', 'Production Area', 'Destination', 'Items', 'Qty'],
+      ['Transfer Barcode', 'Date', 'Received By', 'Item Code', 'Transferred', 'Received', 'Variance', 'Status'],
       rows.map((r) => [
-        r.transfer_number,
-        r.transfer_date,
-        r.creator_name,
-        r.production_area,
-        r.destination_warehouse,
-        r.total_items,
-        r.total_qty,
+        r.transfer_barcode,
+        formatDateTime(r.created_at),
+        r.receiver_name,
+        r.item_code,
+        r.transferred_quantity,
+        r.received_quantity ?? '',
+        r.variance ?? '',
+        r.status,
       ]),
     )
   }
 
-  const totalItems = rows.reduce((s, r) => s + Number(r.total_items || 0), 0)
-  const totalQty = rows.reduce((s, r) => s + Number(r.total_qty || 0), 0)
+  const totalTransferred = rows.reduce((s, r) => s + Number(r.transferred_quantity || 0), 0)
+  const totalReceived = rows.reduce((s, r) => s + Number(r.received_quantity || 0), 0)
 
   return (
     <Layout title="Reports">
@@ -185,7 +188,7 @@ export default function Reports() {
           <CardHeader className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-ink-800">{reportTitle}</h3>
             <span className="text-xs font-medium text-ink-400">
-              {rows.length} transfer(s) · {totalItems} items · {totalQty} qty
+              {rows.length} record(s) · {totalTransferred} transferred · {totalReceived} received
             </span>
           </CardHeader>
           {loading ? (
@@ -199,25 +202,27 @@ export default function Reports() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-ink-100 text-left text-xs font-semibold uppercase tracking-wide text-ink-400">
-                    <th className="px-5 py-3">Transfer #</th>
+                    <th className="px-5 py-3">Transfer Barcode</th>
                     <th className="px-5 py-3">Date</th>
-                    <th className="px-5 py-3">Prepared By</th>
-                    <th className="px-5 py-3">Production Area</th>
-                    <th className="px-5 py-3">Destination</th>
-                    <th className="px-5 py-3">Items</th>
-                    <th className="px-5 py-3">Qty</th>
+                    <th className="px-5 py-3">Received By</th>
+                    <th className="px-5 py-3">Item Code</th>
+                    <th className="px-5 py-3">Transferred</th>
+                    <th className="px-5 py-3">Received</th>
+                    <th className="px-5 py-3">Variance</th>
+                    <th className="px-5 py-3">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
                   {rows.map((r) => (
-                    <tr key={r.transfer_number}>
-                      <td className="px-5 py-3 font-medium text-ink-800">{r.transfer_number}</td>
+                    <tr key={r.transfer_barcode}>
+                      <td className="px-5 py-3 font-mono text-xs text-ink-700">{r.transfer_barcode}</td>
                       <td className="px-5 py-3 text-ink-500">{formatDateTime(r.created_at)}</td>
-                      <td className="px-5 py-3 text-ink-600">{r.creator_name}</td>
-                      <td className="px-5 py-3 text-ink-600">{r.production_area}</td>
-                      <td className="px-5 py-3 text-ink-600">{r.destination_warehouse}</td>
-                      <td className="px-5 py-3 text-ink-800">{r.total_items}</td>
-                      <td className="px-5 py-3 text-ink-800">{r.total_qty}</td>
+                      <td className="px-5 py-3 text-ink-600">{r.receiver_name}</td>
+                      <td className="px-5 py-3 text-ink-600">{r.item_code}</td>
+                      <td className="px-5 py-3 text-ink-800">{r.transferred_quantity}</td>
+                      <td className="px-5 py-3 text-ink-800">{r.received_quantity ?? '—'}</td>
+                      <td className="px-5 py-3 text-ink-800">{r.variance ?? '—'}</td>
+                      <td className="px-5 py-3 text-ink-600">{r.status}</td>
                     </tr>
                   ))}
                 </tbody>

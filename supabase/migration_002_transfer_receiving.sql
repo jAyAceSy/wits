@@ -549,6 +549,17 @@ create policy transfer_audit_select on public.transfer_audit_trail
 -- =====================================================================
 -- Realtime (optional): lets the Variance Review queue and dashboards
 -- update live as receiving happens on other devices.
+-- Wrapped so this file can be safely re-run without erroring if these
+-- tables were already added to the publication in a previous run.
 -- =====================================================================
-alter publication supabase_realtime add table public.transfer_master;
-alter publication supabase_realtime add table public.transfer_import_batches;
+do $$
+begin
+  alter publication supabase_realtime add table public.transfer_master;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.transfer_import_batches;
+exception when duplicate_object then null;
+end $$;

@@ -4,14 +4,13 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NewTransfer from './pages/NewTransfer'
 import TransferHistory from './pages/TransferHistory'
-import TransferDetail from './pages/TransferDetail'
 import Products from './pages/Products'
 import Users from './pages/Users'
 import Reports from './pages/Reports'
 import Search from './pages/Search'
 import TransferImport from './pages/TransferImport'
-import ReceiveTransfer from './pages/ReceiveTransfer'
 import VarianceReview from './pages/VarianceReview'
+import PalletLabelPrinting from './pages/PalletLabelPrinting'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -40,14 +39,6 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={['warehouse_staff']}>
             <TransferHistory />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/transfers/:id"
-        element={
-          <ProtectedRoute allowedRoles={['warehouse_staff']}>
-            <TransferDetail />
           </ProtectedRoute>
         }
       />
@@ -94,18 +85,18 @@ export default function App() {
         }
       />
       <Route
-        path="/receive-transfer"
-        element={
-          <ProtectedRoute allowedRoles={['warehouse_staff']}>
-            <ReceiveTransfer />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/variance-review"
         element={
           <ProtectedRoute allowedRoles={['warehouse_officer']}>
             <VarianceReview />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/label-printing"
+        element={
+          <ProtectedRoute allowedRoles={['warehouse_officer', 'production']}>
+            <PalletLabelPrinting />
           </ProtectedRoute>
         }
       />
