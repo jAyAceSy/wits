@@ -73,6 +73,8 @@ export function PalletLabelCard({
         <LabelRow label="Destination" value={record.destination_warehouse} />
         <LabelRow label="Prod. Date" value={record.production_date} />
         <LabelRow label="Pallet No." value={record.pallet_number} />
+        <LabelRow label="Finisher" value={record.finisher} />
+        <LabelRow label="QC" value={record.qc} />
       </div>
 
       <div

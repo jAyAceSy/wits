@@ -14,6 +14,8 @@ export interface ParsedTransferRow {
   destination_warehouse: string
   production_date_raw: string
   pallet_number: string
+  finisher: string
+  qc: string
 }
 
 /**
@@ -26,9 +28,9 @@ export interface ParsedTransferRow {
  *
  * Expected header row (case-insensitive):
  *   Transfer Barcode | Item Code | Description | UOM | Transferred Quantity
- *   | Destination Warehouse | Production Date | Pallet Number
+ *   | Destination Warehouse | Production Date | Pallet Number | Finisher | QC
  *
- * The last 3 columns are optional and only needed for label printing.
+ * The last 5 columns are optional and only needed for label printing.
  */
 export function parseTransferExcel(file: File): Promise<ParsedTransferRow[]> {
   return new Promise((resolve, reject) => {
@@ -48,7 +50,15 @@ export function parseTransferExcel(file: File): Promise<ParsedTransferRow[]> {
           }
 
           const rawDate = normalized['production date'] ?? normalized['production_date'] ?? ''
-          const dateStr = rawDate instanceof Date ? rawDate.toISOString().slice(0, 10) : String(rawDate).trim()
+          // IMPORTANT: don't use .toISOString() here — it converts to UTC
+          // first, which silently rolls the date back a day for anyone in
+          // a timezone ahead of UTC (e.g. Aug 3 local midnight becomes
+          // Aug 2 in UTC). Reading the local calendar fields directly
+          // avoids that shift entirely.
+          const dateStr =
+            rawDate instanceof Date
+              ? `${rawDate.getFullYear()}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${String(rawDate.getDate()).padStart(2, '0')}`
+              : String(rawDate).trim()
 
           return {
             row_number: index + 1,
@@ -68,6 +78,8 @@ export function parseTransferExcel(file: File): Promise<ParsedTransferRow[]> {
             pallet_number: String(
               normalized['pallet number'] ?? normalized['pallet_number'] ?? normalized['pallet'] ?? '',
             ).trim(),
+            finisher: String(normalized['finisher'] ?? '').trim(),
+            qc: String(normalized['qc'] ?? normalized['q.c.'] ?? normalized['quality control'] ?? '').trim(),
           }
         })
 

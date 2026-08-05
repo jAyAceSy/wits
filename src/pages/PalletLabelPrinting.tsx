@@ -14,7 +14,7 @@ import { PrintLabelSheet } from '../components/PrintLabelSheet'
 import { PalletLabelCard } from '../components/PalletLabelCard'
 import { formatDateTime } from '../utils/format'
 
-const COMPANY_NAME = 'SCPA - DAVAO BRANCH'
+const COMPANY_NAME = 'SCPA Hygiene Products Inc.'
 
 type Tab = 'records' | 'history'
 
@@ -114,6 +114,8 @@ export default function PalletLabelPrinting() {
       destination_warehouse: r.destination_warehouse ?? '',
       production_date: r.production_date ?? '',
       pallet_number: r.pallet_number ?? '',
+      finisher: r.finisher ?? '',
+      qc: r.qc ?? '',
       print_count: r.print_count ?? 0,
       last_printed_at: r.last_printed_at ?? null,
       isReady: !!(r.destination_warehouse && r.production_date && r.pallet_number),
@@ -310,6 +312,8 @@ export default function PalletLabelPrinting() {
                       <th className="px-3 py-3">Destination</th>
                       <th className="px-3 py-3">Prod. Date</th>
                       <th className="px-3 py-3">Pallet</th>
+                      <th className="px-3 py-3">Finisher</th>
+                      <th className="px-3 py-3">QC</th>
                       <th className="px-3 py-3">Status</th>
                       <th className="px-3 py-3"></th>
                     </tr>
@@ -333,6 +337,8 @@ export default function PalletLabelPrinting() {
                         <td className="px-3 py-3 text-ink-600">{r.destination_warehouse || '—'}</td>
                         <td className="px-3 py-3 text-ink-500">{r.production_date || '—'}</td>
                         <td className="px-3 py-3 text-ink-600">{r.pallet_number || '—'}</td>
+                        <td className="px-3 py-3 text-ink-600">{r.finisher || '—'}</td>
+                        <td className="px-3 py-3 text-ink-600">{r.qc || '—'}</td>
                         <td className="px-3 py-3">
                           {!r.isReady ? (
                             <Badge tone="danger">Missing label info</Badge>

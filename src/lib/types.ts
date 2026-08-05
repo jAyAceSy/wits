@@ -135,6 +135,8 @@ export interface TransferMasterFull {
   print_count: number
   last_printed_at: string | null
   last_printed_by: string | null
+  finisher: string | null
+  qc: string | null
   // joined
   receiver_name?: string
   reviewer_name?: string
@@ -258,6 +260,8 @@ export interface PrintableTransferRecord {
   destination_warehouse: string
   production_date: string
   pallet_number: string
+  finisher: string
+  qc: string
   print_count: number
   last_printed_at: string | null
 }

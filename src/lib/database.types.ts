@@ -262,6 +262,8 @@ export interface Database {
           production_date_raw: string | null
           production_date: string | null
           pallet_number: string | null
+          finisher: string | null
+          qc: string | null
         }
         Insert: {
           id?: string
@@ -280,6 +282,8 @@ export interface Database {
           production_date_raw?: string | null
           production_date?: string | null
           pallet_number?: string | null
+          finisher?: string | null
+          qc?: string | null
         }
         Update: {
           validation_status?: ImportValidationStatus | null
@@ -324,6 +328,8 @@ export interface Database {
           print_count: number
           last_printed_at: string | null
           last_printed_by: string | null
+          finisher: string | null
+          qc: string | null
         }
         Insert: {
           id?: string

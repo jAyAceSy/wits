@@ -98,6 +98,8 @@ export default function TransferImport() {
           destination_warehouse: r.destination_warehouse || null,
           production_date_raw: r.production_date_raw || null,
           pallet_number: r.pallet_number || null,
+          finisher: r.finisher || null,
+          qc: r.qc || null,
         }))
         const { error: stagingError } = await supabase.from('transfer_import_staging').insert(chunk)
         if (stagingError) {
@@ -158,7 +160,7 @@ export default function TransferImport() {
               Columns expected: Transfer Barcode, Item Code, Description, UOM, Transferred Quantity
               <br />
               Optional (needed only if you'll print pallet labels): Destination Warehouse, Production Date, Pallet
-              Number
+              Number, Finisher, QC
             </p>
           </CardHeader>
           <CardBody className="flex flex-col gap-4">
